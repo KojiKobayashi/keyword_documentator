@@ -28,7 +28,7 @@ system_prompt = f"""
 
 # 2. モデルを「System Instruction」付きで初期化
 model = genai.GenerativeModel(
-    'gemini-2.0-flash',
+    'gemini-2.5-flash',
     system_instruction=system_prompt
 )
 
