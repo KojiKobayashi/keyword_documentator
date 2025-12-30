@@ -71,8 +71,12 @@ def read_root():
 
 @app.post("/create-article")
 def create_article_endpoint(request: ArticleRequest):
+    """
+    記事生成APIのエンドポイント
+    Geminiを使って記事を生成し、ユーザーが確認できるようにMarkdownを返す
+    """
     try:
-        # 1. 記事本文を生成 (Gemini)
+        # 記事本文を生成 (Gemini)
         markdown_text = generate_article_with_system_instruction(
             theme=request.theme,
             level=request.level,
@@ -86,21 +90,43 @@ def create_article_endpoint(request: ArticleRequest):
             raise HTTPException(status_code=500,
                                 detail="Gemini generated empty text.")
 
-        # 2. 記事タイトルを生成 (簡易的にテーマから作成。本来はAIにタイトルも作らせると良い)
+        # 記事タイトルを生成
         article_title = f"【{request.level}】{request.theme}の解説と演習問題"
 
-        # 3. WordPressに下書き投稿 (ここが新機能！)
-        wp_response = post_draft_to_wordpress(article_title, markdown_text)
+        # 生成された記事を返す (まだWordPressには投稿しない)
+        return {
+            "article_markdown": markdown_text,
+            "article_title": article_title
+        }
 
-        # 4. 結果を返す
-        # WordPressの管理画面（編集ページ）へのURLを取得するには、レスポンスの 'id' を使う
+    except Exception as e:
+        print(f"Error: {e}") # ログ用
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# WordPress投稿用のリクエストボディ定義
+class PublishRequest(BaseModel):
+    title: str
+    content: str
+
+
+@app.post("/publish-article")
+def publish_article_endpoint(request: PublishRequest):
+    """
+    ユーザーが確認後にボタンを押してWordPressに記事を投稿するエンドポイント
+    """
+    try:
+        # WordPressに下書き投稿
+        wp_response = post_draft_to_wordpress(request.title, request.content)
+
+        # WordPressの管理画面（編集ページ）へのURLを取得
         post_id = wp_response.get("id")
         edit_url = f"{os.environ.get('WP_BASE_URL')}/wp-admin/post.php?post={post_id}&action=edit"
 
         return {
-            "message": "Success! Article posted to WordPress.",
-            "article_markdown": markdown_text,  # 確認用にMarkdownも一応返す
-            "wordpress_url": edit_url  # Streamlitでリンクを表示できる！
+            "message": "Success! Article posted to WordPress as draft.",
+            "post_id": post_id,
+            "wordpress_url": edit_url
         }
 
     except Exception as e:

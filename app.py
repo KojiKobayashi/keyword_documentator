@@ -5,6 +5,12 @@ import streamlit as st
 
 # os や generate_article のインポートは削除
 
+# --- セッション状態の初期化 ---
+if "article_generated" not in st.session_state:
+    st.session_state.article_generated = False
+    st.session_state.article_markdown = ""
+    st.session_state.article_title = ""
+
 # --- 2. Streamlit UI (入力画面) の構築 ---
 
 st.set_page_config(page_title="簿記ブログ記事 生成システム", layout="wide")
@@ -16,10 +22,14 @@ col1, col2 = st.columns(2)
 
 # APIのエンドポイントURL（フェーズ1ではローカル、フェーズ2でクラウドURLに変更）
 # FastAPIをローカルで動かす場合（デフォルト）
-API_ENDPOINT = "http://127.0.0.1:8000/create-article"
+API_BASE_URL = "http://127.0.0.1:8000"
+API_ENDPOINT = f"{API_BASE_URL}/create-article"
+PUBLISH_ENDPOINT = f"{API_BASE_URL}/publish-article"
 
 # デプロイ後のURL（例）
-# API_ENDPOINT = "https://your-api-endpoint-url.a.run.app/create-article"
+# API_BASE_URL = "https://your-api-endpoint-url.a.run.app"
+# API_ENDPOINT = f"{API_BASE_URL}/create-article"
+# PUBLISH_ENDPOINT = f"{API_BASE_URL}/publish-article"
 
 with col1:
     st.subheader("STEP 1: 記事の基本情報を入力")
@@ -85,16 +95,12 @@ if st.button("記事を生成する", type="primary"):
                 article_markdown = result.get("article_markdown")
 
             if article_markdown:
+                # セッション状態に記事を保存
+                st.session_state.article_generated = True
+                st.session_state.article_markdown = article_markdown
+                st.session_state.article_title = result.get("article_title", f"【{level}】{theme}の解説と演習問題")
+                
                 st.success("記事が完成しました！")
-
-                # --- 出力エリア ---
-                st.subheader("生成された記事（プレビュー）")
-                st.markdown(f'<div style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">{article_markdown}</div>', unsafe_allow_html=True)
-
-                st.subheader("コピー用のMarkdownコード")
-                st.code(article_markdown, language="markdown")
-            else:
-                st.error(f"APIからの応答が不正です: {result}")
 
         except requests.exceptions.ConnectionError:
             st.error(f"APIサーバー({API_ENDPOINT})に接続できません。FastAPIサーバーが起動しているか確認してください。")
@@ -103,3 +109,41 @@ if st.button("記事を生成する", type="primary"):
         except Exception as e:
             st.error(f"記事の生成中に予期せぬエラーが発生しました: {e}")
         # --- ここまでが変更点 ---
+
+st.markdown("---")
+
+# --- 4. 生成済み記事の表示と投稿 ---
+if st.session_state.article_generated:
+    st.subheader("生成された記事（プレビュー）")
+    st.markdown(f'<div style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">{st.session_state.article_markdown}</div>', unsafe_allow_html=True)
+
+    st.subheader("コピー用のMarkdownコード")
+    st.code(st.session_state.article_markdown, language="markdown")
+
+    # --- WordPressに投稿するボタン ---
+    st.markdown("---")
+    st.subheader("記事をWordPressに投稿")
+    
+    if st.button("WordPressに下書き投稿", type="primary", key="publish_button"):
+        # WordPress投稿用のデータ
+        publish_data = {
+            "title": st.session_state.article_title,
+            "content": st.session_state.article_markdown
+        }
+        
+        try:
+            with st.spinner("WordPressに投稿中..."):
+                publish_response = requests.post(PUBLISH_ENDPOINT, json=publish_data, timeout=60)
+                publish_response.raise_for_status()
+                
+                publish_result = publish_response.json()
+            
+            st.success(f"✅ 記事がWordPressに下書き投稿されました！")
+            st.info(f"📝 [編集ページで確認]({publish_result.get('wordpress_url')})")
+            
+        except requests.exceptions.ConnectionError:
+            st.error(f"APIサーバー({PUBLISH_ENDPOINT})に接続できません。FastAPIサーバーが起動しているか確認してください。")
+        except requests.exceptions.RequestException as e:
+            st.error(f"投稿中にエラーが発生しました: {e}")
+        except Exception as e:
+            st.error(f"予期せぬエラーが発生しました: {e}")
